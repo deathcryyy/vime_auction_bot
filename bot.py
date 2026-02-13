@@ -1,9 +1,12 @@
 import asyncio
 import aiohttp
-import ssl
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from config import API_URL, CHECK_INTERVAL, ALERT_BEFORE_END_HOURS, WATCHED_NICKS
+
+# Настройки для автоотправки изображения
+IMAGE_SEND_INTERVAL = 3600  # 1 час в секундах
+IMAGE_PATH = Path(__file__).parent / "image.jpg"  # Путь к изображению
 
 known_auctions = set()
 last_bids = {}
@@ -30,13 +33,6 @@ def load_telegram_config():
 
 TELEGRAM_TOKEN, TELEGRAM_CHAT_ID = load_telegram_config()
 
-# Создаём SSL контекст без проверки сертификатов
-def create_ssl_context():
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    return ssl_context
-
 async def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
@@ -50,20 +46,47 @@ async def send_telegram(message):
     }
     
     try:
-        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
                 if resp.status != 200:
                     print(f"tg error: {await resp.text()}")
     except Exception as e:
         print(f"tg error: {e}")
-        
+
+async def send_image():
+    """Отправляет изображение в Telegram"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    
+    if not IMAGE_PATH.exists():
+        print(f"image not found: {IMAGE_PATH}")
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            with open(IMAGE_PATH, 'rb') as image_file:
+                form = aiohttp.FormData()
+                form.add_field('chat_id', TELEGRAM_CHAT_ID)
+                form.add_field('photo', image_file, filename='image.jpg')
+                
+                async with session.post(url, data=form) as resp:
+                    if resp.status != 200:
+                        print(f"tg image error: {await resp.text()}")
+                    else:
+                        print("image sent successfully")
     except Exception as e:
-        print(f"tg error: {e}")
+        print(f"tg image error: {e}")
+
+async def image_sender():
+    """Фоновая задача для автоматической отправки изображения каждый час"""
+    while True:
+        await asyncio.sleep(IMAGE_SEND_INTERVAL)
+        await send_image()
 
 async def fetch_auctions():
-    connector = aiohttp.TCPConnector(ssl=create_ssl_context())
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession() as session:
         params = {
             "limit": 100,
             "offset": 0,
@@ -106,8 +129,7 @@ def is_ending_soon(end_time_str):
 
 async def fetch_bids(item_id):
     url = f"{API_URL}/bid"
-    connector = aiohttp.TCPConnector(ssl=create_ssl_context())
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession() as session:
         params = {"item_id": item_id, "limit": 5, "offset": 0}
         async with session.get(url, params=params) as resp:
             if resp.status == 200:
@@ -126,7 +148,6 @@ async def notify_auction(item, is_new=False):
     print(f"{tag} {item['item_data']} | {item['current_bid']} | {time_left}")
     
     if TELEGRAM_TOKEN:
-        await asyncio.sleep(15)
         prefix = "<b>new:</b> " if is_new else ""
         msg = f"{prefix}<b>{item['item_data']}</b>\n"
         msg += f"vim: {item['current_bid']} | min: {item['minimum_bid']}\n"
@@ -141,9 +162,9 @@ async def notify_new_bid(item, new_bid, old_bid):
     bidder = "unknown"
     if bids_data and bids_data.get("items"):
         bidder = bids_data["items"][0]["user_name"]
-
+    
     print(f"[bid] {item['item_data']}: {bidder} -> {new_bid} vim | {time_left}")
-
+    
     if TELEGRAM_TOKEN:
         msg = f"<b>stavka on {item['item_data']}</b>\n"
         msg += f"by: {bidder}\n"
@@ -160,7 +181,7 @@ async def monitor():
     print(f"started | tg: {tg_status}")
     
     if TELEGRAM_TOKEN:
-        await send_telegram("Hi PEDIKI")
+        await send_telegram("Hi, I'm working")
     
     while True:
         try:
@@ -204,4 +225,11 @@ async def monitor():
         await asyncio.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
-    asyncio.run(monitor())
+    # Запускаем обе задачи параллельно
+    async def main():
+        await asyncio.gather(
+            monitor(),
+            image_sender()
+        )
+    
+    asyncio.run(main())
