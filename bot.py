@@ -5,7 +5,7 @@ from pathlib import Path
 from config import API_URL, CHECK_INTERVAL, ALERT_BEFORE_END_HOURS, WATCHED_NICKS
 
 # Настройки для автоотправки изображения
-IMAGE_SEND_INTERVAL = 60  # 1 час в секундах
+IMAGE_SEND_INTERVAL = 7200  # 1 час в секундах
 IMAGE_PATH = Path(__file__).parent / "image.jpg"  # Путь к изображению
 
 known_auctions = set()
@@ -233,4 +233,5 @@ if __name__ == "__main__":
         )
     
     asyncio.run(main())
+
 
