@@ -181,7 +181,7 @@ async def monitor():
     print(f"started | tg: {tg_status}")
     
     if TELEGRAM_TOKEN:
-        await send_telegram("Hi, I'm working")
+        await send_telegram("ZDAROVA PIDARASIKI")
     
     while True:
         try:
@@ -233,5 +233,6 @@ if __name__ == "__main__":
         )
     
     asyncio.run(main())
+
 
 
